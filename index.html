@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Uptime & Security Checker</title>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb;
+          --up:#16a34a; --down:#dc2626; --warn:#d97706; --accent:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Sarabun","Segoe UI",Tahoma,sans-serif; background:var(--bg); color:var(--text); }
+  header { background:#0f172a; color:#fff; padding:18px 28px; }
+  header h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:#94a3b8; font-size:13px; }
+  main { max-width:1150px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:18px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input[type=text] { flex:1; min-width:260px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  button { padding:9px 14px; border:0; border-radius:8px; cursor:pointer; font-size:13px; font-family:inherit; }
+  .primary { background:var(--accent); color:#fff; }
+  .ghost { background:#eef2ff; color:var(--accent); }
+  .danger { background:#fee2e2; color:var(--down); }
+  button:disabled { opacity:.5; cursor:wait; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .stat b { display:block; font-size:26px; }
+  .stat span { color:var(--muted); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:700; font-size:12px; color:#fff; }
+  .UP { background:var(--up); } .DOWN { background:var(--down); }
+  .grade { display:inline-block; width:28px; height:28px; line-height:28px; text-align:center; border-radius:6px; font-weight:700; color:#fff; }
+  .gA { background:#16a34a; } .gB { background:#65a30d; } .gC { background:#d97706; } .gD { background:#ea580c; } .gF { background:#dc2626; } .g- { background:#9ca3af; }
+  .muted { color:var(--muted); font-size:12px; }
+  .url { word-break:break-all; font-weight:600; }
+  .warn { color:var(--warn); font-weight:600; } .bad { color:var(--down); font-weight:600; }
+  #msg { margin-top:10px; font-size:13px; min-height:18px; }
+  #report { display:none; }
+  .issue { border-left:4px solid var(--line); padding:8px 12px; margin:8px 0; background:#fafafa; border-radius:4px; }
+  .issue.HIGH { border-color:var(--down); } .issue.MEDIUM { border-color:var(--warn); } .issue.LOW { border-color:#9ca3af; }
+  code { background:#f1f5f9; padding:2px 6px; border-radius:4px; font-size:12px; }
+  .config { background:#fff7ed; border:1px solid #fed7aa; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ Web Uptime &amp; Security Checker</h1>
+  <p>ตรวจสถานะเว็บไซต์ • ตรวจ SSL และ Security Headers • ส่งรายงานทางอีเมล</p>
+</header>
+<main>
+  <div class="card config" id="configWarn" style="display:none">
+    ⚠️ ยังไม่ได้ตั้งค่า <code>API_URL</code> ให้แก้ค่าในไฟล์ index.html (บรรทัด <code>const API_URL = ...</code>) เป็น URL ของ API Gateway
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input type="text" id="urlInput" placeholder="ใส่ URL ที่ต้องการเฝ้าดู เช่น https://www.dpe.go.th">
+      <button class="primary" id="addBtn" onclick="addSite()">+ เพิ่มและตรวจทันที</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sTotal">0</b><span>เว็บที่เฝ้าดู</span></div>
+    <div class="stat"><b id="sUp" style="color:var(--up)">0</b><span>ใช้งานได้ (UP)</span></div>
+    <div class="stat"><b id="sDown" style="color:var(--down)">0</b><span>ล่ม (DOWN)</span></div>
+    <div class="stat"><b id="sSsl" style="color:var(--warn)">0</b><span>SSL ใกล้หมดอายุ / มีปัญหา</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <b>รายการเว็บไซต์</b><span class="muted" id="lastLoad"></span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>สถานะ</th><th>เว็บไซต์</th><th>HTTP</th><th>เวลาตอบสนอง</th><th>SSL</th><th>เกรด</th><th>ตรวจล่าสุด</th><th></th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="8" class="muted">กำลังโหลด...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="report"></div>
+</main>
+
+<script>
+  // ====== ตั้งค่าตรงนี้: วาง URL ของ API Gateway (Step 4 ในคู่มือ) ======
+  const API_URL = "PASTE_YOUR_API_GATEWAY_URL_HERE";
+  const SSL_WARN_DAYS = 30;
+  // ===================================================================
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  async function api(action, method = "GET", payload = null) {
+    const opts = { method };
+    let url = `${API_URL}?action=${action}`;
+    if (payload && method === "GET") url += `&url=${encodeURIComponent(payload.url)}`;
+    if (payload && method !== "GET") { opts.headers = {"Content-Type":"application/json"}; opts.body = JSON.stringify({action, ...payload}); }
+    const res = await fetch(url, opts);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+
+  function msg(text, color = "var(--text)") { $("msg").innerHTML = `<span style="color:${color}">${text}</span>`; }
+
+  function sslCell(i) {
+    if (i.ssl_valid && i.ssl_days_left != null) {
+      const cls = i.ssl_days_left <= SSL_WARN_DAYS ? "warn" : "";
+      return `<span class="${cls}">เหลือ ${i.ssl_days_left} วัน</span><div class="muted">${esc(i.ssl_expiry)}</div>`;
+    }
+    return `<span class="bad">${esc(i.ssl_error || "-")}</span>`;
+  }
+
+  async function load() {
+    if (API_URL.startsWith("PASTE")) { $("configWarn").style.display = "block"; return; }
+    try {
+      const { items } = await api("list");
+      $("sTotal").textContent = items.length;
+      $("sUp").textContent = items.filter(i => i.status === "UP").length;
+      $("sDown").textContent = items.filter(i => i.status === "DOWN").length;
+      $("sSsl").textContent = items.filter(i => !i.ssl_valid || i.ssl_days_left <= SSL_WARN_DAYS).length;
+      $("lastLoad").textContent = "อัปเดตหน้าจอ: " + new Date().toLocaleTimeString("th-TH") + "";
+      $("rows").innerHTML = items.length ? items.map(i => `
+        <tr>
+          <td><span class="badge ${i.status}">${i.status}</span></td>
+          <td><div class="url">${esc(i.url)}</div>${i.status === "DOWN" ? `<div class="bad" style="font-size:12px">${esc(i.error)}</div>` : ""}</td>
+          <td>${i.status_code || "-"}</td>
+          <td>${i.response_ms != null ? i.response_ms + " ms" : "-"}</td>
+          <td>${sslCell(i)}</td>
+          <td><span class="grade g${esc(i.security_grade || "-")}">${esc(i.security_grade || "-")}</span></td>
+          <td class="muted">${esc(i.last_checked)}</td>
+          <td style="white-space:nowrap">
+            <button class="ghost" onclick="recheck('${esc(i.url)}')">ตรวจซ้ำ</button>
+            <button class="ghost" onclick="showReport('${esc(i.url)}')">รายงาน</button>
+            <button class="ghost" onclick="emailReport('${esc(i.url)}')">ส่งอีเมล</button>
+            <button class="danger" onclick="del('${esc(i.url)}')">ลบ</button>
+          </td>
+        </tr>`).join("") : `<tr><td colspan="8" class="muted">ยังไม่มีเว็บในรายการ ลองเพิ่ม URL ด้านบน</td></tr>`;
+    } catch (e) { msg("โหลดข้อมูลไม่สำเร็จ: " + e.message, "var(--down)"); }
+  }
+
+  async function addSite() {
+    const url = $("urlInput").value.trim();
+    if (!url) return msg("กรุณาใส่ URL", "var(--down)");
+    $("addBtn").disabled = true; msg("กำลังตรวจ " + esc(url) + " ...");
+    try {
+      const { item } = await api("add", "POST", { url });
+      msg(`ตรวจเสร็จ: <b>${esc(item.url)}</b> สถานะ <span class="badge ${item.status}">${item.status}</span> HTTP ${item.status_code || "-"} • ${item.response_ms} ms • เกรด ${item.security_grade}`
+          );
+      $("urlInput").value = ""; await load(); showReport(item.url);
+    } catch (e) { msg("ผิดพลาด: " + e.message, "var(--down)"); }
+    $("addBtn").disabled = false;
+  }
+
+  async function recheck(url) {
+    msg("กำลังตรวจซ้ำ " + esc(url) + " ...");
+    try {
+      const { item } = await api("check", "POST", { url });
+      msg(`ตรวจซ้ำเสร็จ: <b>${esc(item.url)}</b> สถานะ <span class="badge ${item.status}">${item.status}</span> HTTP ${item.status_code || "-"} • ${item.response_ms} ms`);
+      await load();
+    } catch (e) { msg("ผิดพลาด: " + e.message, "var(--down)"); }
+  }
+
+  async function showReport(url) {
+    try {
+      const { item } = await api("report", "GET", { url });
+      const issues = item.issues || [];
+      $("report").style.display = "block";
+      $("report").innerHTML = `
+        <div class="row" style="justify-content:space-between">
+          <b>รายงานความปลอดภัย: ${esc(item.url)}</b>
+          <span><span class="grade g${esc(item.security_grade)}">${esc(item.security_grade)}</span> ${item.security_score ?? "-"}/100</span>
+        </div>
+        <p class="muted">SSL: ${item.ssl_valid ? `ออกโดย ${esc(item.ssl_issuer)} • หมดอายุ ${esc(item.ssl_expiry)} (เหลือ ${item.ssl_days_left} วัน)` : esc(item.ssl_error)}<br>
+        Header ที่มีแล้ว: ${esc((item.headers_present || []).join(", ") || "-")}</p>
+        <b>สิ่งที่ควรแก้ไข (${issues.length} รายการ)</b>
+        ${item.status === "DOWN" ? `<p class="bad">ตรวจรอบนี้เว็บไม่ตอบสนอง (${esc(item.error || "ไม่ทราบสาเหตุ")}) จึงยังวิเคราะห์ header ไม่ได้ ลองกด "รายงาน" อีกครั้ง</p>` : ""}
+        ${issues.map(x => `<div class="issue ${x.level}"><b>[${x.level}] ${esc(x.title)}</b><div class="muted">${esc(x.why)}</div><div>วิธีแก้: <code>${esc(x.fix)}</code></div></div>`).join("")
+          || (item.status === "UP" ? "<p>✅ ไม่พบประเด็นที่ต้องแก้ไข</p>" : "")}`;
+      $("report").scrollIntoView({ behavior: "smooth" });
+    } catch (e) { msg("โหลดรายงานไม่สำเร็จ: " + e.message, "var(--down)"); }
+  }
+
+  async function emailReport(url) {
+    msg("กำลังส่งรายงานทางอีเมล ...");
+    try { const r = await api("email_report", "POST", { url }); msg("📧 " + esc(r.message), "var(--up)"); await load(); }
+    catch (e) { msg("ผิดพลาด: " + e.message, "var(--down)"); }
+  }
+
+  async function del(url) {
+    if (!confirm("ลบ " + url + " ออกจากรายการ?")) return;
+    try { await api("delete", "POST", { url }); msg("ลบแล้ว"); $("report").style.display = "none"; await load(); }
+    catch (e) { msg("ผิดพลาด: " + e.message, "var(--down)"); }
+  }
+
+  $("urlInput").addEventListener("keydown", e => { if (e.key === "Enter") addSite(); });
+  load();
+</script>
+</body>
+</html>
